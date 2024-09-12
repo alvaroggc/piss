@@ -113,6 +113,10 @@ slp = load_simulation(dirsim, simid, ['PSL'])['PSL']
 # extract temporal range (only for slp)
 slp = slp.sel({'time': slice(date_ini, date_end)})
 
+# adjust slp units
+slp = slp.where(False, slp / 100)
+slp.attrs['units'] = 'hPa'
+
 # output filename template
 output = f'piss_map_slpmin_v3_{simid.lower()}_*.png'
 
