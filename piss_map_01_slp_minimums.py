@@ -118,13 +118,16 @@ slp = slp.where(False, slp / 100)
 slp.attrs['units'] = 'hPa'
 
 # output filename template
-output = f'piss_map_slpmin_v3_{simid.lower()}_*.png'
+output_template = f'piss_map_slpmin_v3_{simid.lower()}_*.png'
 
 # remove previous images
-for f in glob(f'{dirimg}/{output}'): os.remove(f)
+for f in glob(f'{dirimg}/{output_template}'): os.remove(f)
 
 # levels of slp (for maps)
 levels = np.arange(970, 1050+1, 5)
+
+# logging message
+indent = log_message('making slpmin maps')
 
 # plot tracks over map
 for t in slp['time'][:181]:
@@ -132,6 +135,12 @@ for t in slp['time'][:181]:
     # date identifiers
     datestr = t.dt.strftime('%Y-%m-%d').item()
     dateid  = t.dt.strftime( '%Y%m%d' ).item()
+
+    # output filename image
+    output = f"{output_template.replace('*', dateid)}"
+
+    # logging message
+    print(f'{indent}{output}')
 
     # time indexer
     tidx = {'time': t}
@@ -203,8 +212,7 @@ for t in slp['time'][:181]:
     ax.set_extent([0, 360, -90, -9], crs=trans)
 
     # save / show plot
-    fig.savefig(f"{dirimg}/{output.replace('*', dateid)}",
-                bbox_inches='tight')
+    fig.savefig(f"{dirimg}/{output}", bbox_inches='tight')
 
     # close figure
     plt.close()
