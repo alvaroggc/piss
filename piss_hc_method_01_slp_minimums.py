@@ -222,8 +222,8 @@ def slp_cyclonic_minimums(slp_k):
         # container for contour of slp minimum
         slp_cont = []
 
-        # process each contour
-        for il, collection in enumerate(cont.collections):
+        # process each contour (skip first because it corresponds to center)
+        for il, collection in enumerate(cont.collections[1:]):
 
             for path in collection.get_paths():
 
@@ -266,7 +266,7 @@ def slp_cyclonic_minimums(slp_k):
                 if (cond1 and cond2 and cond3 and cond4 and cond5):
 
                     # add to container
-                    slp_cont += [(np.float32(levels[il]),
+                    slp_cont += [(np.float32(levels[il+1]),
                                   xpath.astype(np.float32),
                                   ypath.astype(np.float32))]
 
@@ -343,7 +343,7 @@ grad_min = 10       # minimum slp gradient required for cyclone [hPa]
 
 # temporal range
 date_ini = '0001-01-01 00:00:00'
-date_end = '0001-12-01 00:00:00'
+date_end = '0005-01-01 00:00:00'
 
 
 ###################

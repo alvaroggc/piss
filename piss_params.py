@@ -24,10 +24,13 @@ import cartopy.crs as ccrs
 latlon_crs = 'epsg:4326'
 laea_crs   = '+proj=laea +lon_0=-73.53 +lat_0=-90 +ellps=WGS84 +x_0=0 +y_0=0 +units=km'
 
-# map definition
-trans = ccrs.PlateCarree()
-proj  = ccrs.NearsidePerspective(central_longitude=(360-73.53),
-                                 central_latitude=-90)
+# map reference(s) transformations
+trans   = ccrs.PlateCarree()
+transxy = ccrs.LambertAzimuthalEqualArea(central_longitude=(360-73.53),
+                                         central_latitude=-90)
+
+# map projections
+proj  = ccrs.SouthPolarStereo(central_longitude=(360-73.53))
 
 # datetime normalization parameters
 ref_datetime = cf.dt(2000, 1, 1, calendar='gregorian')

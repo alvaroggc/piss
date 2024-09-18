@@ -1,9 +1,9 @@
 #!/home/cr2/agomez/.conda/envs/conda/bin/python
 # -*- coding: utf-8 -*-
 #
-# ~/projects/piss/src/piss_map_01_slp_minimums.py
+# ~/projects/piss/src/piss_map_02_tracks.py
 #
-# info  : plot maps with slp minimums locations
+# info  : plot cyclone tracks
 # author: @alvaroggc
 
 
@@ -79,7 +79,7 @@ dirdata = f'{homedir}/projects/piss/data'       # data output
 dirimg  = f'{homedir}/projects/piss/img2'       # output for figures
 
 # output file with cyclones information
-fin = f'cyclones_{simid}_v3_0001_0005.pkl'
+fin = f'tracks_{simid}_v3_0001_0005.pkl'
 
 # indexer to choose southern hemisphere (from -30° to the south)
 shidx = {'lat': slice(-90, -30)}
@@ -102,24 +102,20 @@ size = (7.5, 6)
 with open(f'{dirdata}/{fin}', 'rb') as f:
 
     # read file
-    cyclones = pickle.load(f)
+    tracks = pickle.load(f)
 
-# temporal range
-date_ini = [*cyclones.keys()][ 0]
-date_end = [*cyclones.keys()][-1]
+# list of tracks IDs
+tids = [*tracks.keys()]
 
 # load simulation datasets
 slp = load_simulation(dirsim, simid, ['PSL'], cyclic=True)['PSL']
-
-# extract temporal range (only for slp)
-slp = slp.sel({'time': slice(date_ini, date_end)})
 
 # adjust slp units
 slp = slp.where(False, slp / 100)
 slp.attrs['units'] = 'hPa'
 
 # output filename template
-output_template = f'slp_minimums/piss_map_slpmin_v3_{simid.lower()}_*.png'
+output_template = f'tracks/piss_map_tracks_v3_{simid.lower()}_*.png'
 
 # remove previous images
 for f in glob(f'{dirimg}/{output_template}'): os.remove(f)
@@ -135,46 +131,49 @@ verts  = np.vstack([np.sin(theta), np.cos(theta)]).T
 circle = mpath.Path(verts * radius + center)
 
 # logging message
-indent = log_message('making slpmin maps')
+indent = log_message('making cyclone tracks')
 
 # plot tracks over map
-for t in slp['time'][:10]:
-
-    # date identifiers
-    datestr = t.dt.strftime('%Y-%m-%d').item()
-    dateid  = t.dt.strftime( '%Y%m%d' ).item()
+for tid in tids[:10]:
 
     # output filename image
-    output = f"{output_template.replace('*', dateid)}"
+    output = f"{output_template.replace('*', tid)}"
 
     # logging message
     print(f"{indent}{output.split('/')[-1]}")
 
+    # temporal range
+    date_ini = tracks[tid][ 0][-2]
+    date_end = tracks[tid][-1][-2]
+
     # time indexer
-    tidx = {'time': t}
+    tidx = {'time': slice(date_ini, date_end)}
+
+    # calculate slp mean through tracks
+    slp_track = slp.sel(tidx).mean(dim='time', keep_attrs=True)
 
     # create figure
     fig, ax = plt.subplots(1, 1, figsize=size,
                            subplot_kw={'projection': proj})
 
     # plot field
-    slp.sel(tidx).plot.contourf(ax=ax,
-                                transform=trans,
-                                levels=levels,
-                                extent='both',
-                                cmap='jet',
-                                cbar_kwargs={'location'   : 'right',
-                                                'orientation': 'vertical',
-                                                'drawedges'  : False,
-                                                'fraction'   : 0.1,
-                                                'shrink'     : 1,
-                                                'aspect'     : 30,
-                                                'pad'        : 0.00,
-                                                'anchor'     : (0.5, 1),
-                                                'panchor'    : (0.5, 0)})
+    slp_track.plot.contourf(ax=ax,
+                            transform=trans,
+                            levels=levels,
+                            extent='both',
+                            cmap='jet',
+                            cbar_kwargs={'location'   : 'right',
+                                         'orientation': 'vertical',
+                                         'drawedges'  : False,
+                                         'fraction'   : 0.1,
+                                         'shrink'     : 1,
+                                         'aspect'     : 30,
+                                         'pad'        : 0.00,
+                                         'anchor'     : (0.5, 1),
+                                         'panchor'    : (0.5, 0)})
 
     # plot minimum points
-    for p in cyclones[datestr]:
+    for p in tracks[tid]:
 
         # separate contour coordinates
         xc, yc = p[4][1:]
@@ -194,8 +193,8 @@ for t in slp['time'][:10]:
         ax.text(plon, plat, p[-1], size=12,
                 transform=trans, zorder=5, color='gold')
 
-        # draw contour
-        ax.plot(xc, yc, lw=1, color='black', transform=transxy)
+        # # draw contour
+        # ax.plot(xc, yc, lw=1, color='black', transform=transxy)
 
     # add coastlines
     ax.coastlines(color='black', linewidth=0.5)
@@ -212,7 +211,7 @@ for t in slp['time'][:10]:
     gridlines.right_labels  = True
 
     # set labels
-    ax.set_title(f'Southern Hemishphere, {datestr}')
+    ax.set_title(f'Southern Hemishphere, track {tid}')
     ax.set_xlabel('')
     ax.set_ylabel('')
 

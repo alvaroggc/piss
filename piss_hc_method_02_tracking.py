@@ -171,7 +171,7 @@ dirout  = f'{homedir}/projects/piss/data'       # data output
 dirimg  = f'{homedir}/projects/piss/img'        # output for figures
 
 # filenames for stored results
-fin  = f'cyclones_{simid}_v3_0001_0001.pkl'
+fin  = f'cyclones_{simid}_v3_0001_0005.pkl'
 
 # variable to process
 key = 'PSL'
