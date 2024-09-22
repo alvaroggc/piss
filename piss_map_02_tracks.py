@@ -19,9 +19,12 @@ import datetime as dt
 
 # 3rd party packages
 import cf
+import numpy as np
+import xarray as xr
 import cartopy.crs as ccrs
 import multiprocess as mp
 import matplotlib.path as mpath
+import matplotlib.pyplot as plt
 from pyproj import Geod
 from shapely.geometry import Point, LineString
 from shapely.geometry.polygon import Polygon

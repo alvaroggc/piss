@@ -13,6 +13,14 @@ import pyproj
 import numpy as np
 import cartopy.crs as ccrs
 
+# <things> that should be imported from this module
+__all__ = ['latlon_crs',
+           'laea_crs',
+           'trans',
+           'transxy',
+           'proj',
+           'ref_datetime',
+           'norm']
 
 
 #############################

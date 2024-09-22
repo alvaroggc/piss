@@ -19,6 +19,8 @@ import datetime as dt
 
 # 3rd party packages
 import cf
+import numpy as np
+import xarray as xr
 import cartopy.crs as ccrs
 from pyproj import Geod
 from shapely.geometry import Point, LineString

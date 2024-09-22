@@ -42,6 +42,20 @@ locale.setlocale(locale.LC_ALL, 'es_CL.UTF-8')  # apply spanish locale settings
 # local source
 from piss_params import *
 
+# <things> that should be imported from this module
+__all__ = ['trans',
+           'transxy',
+           'proj',
+           'ref_datetime',
+           'norm',
+           'log_message',
+           'load_simulation_variable',
+           'convert_to_lambert',
+           'distance_between_points',
+           'convert_point_to_latlon',
+           'convert_point_to_xy',
+           'xarray_time_iterator']
+
 
 ############################
 ##### GLOBAL FUNCTIONS #####
@@ -151,24 +165,20 @@ def convert_to_lambert(da, res=90):
     # create container of projected data
     newarr = np.zeros((len(da['time']), len(xn), len(yn)))
 
-    # create thread pool
-    pool = mp.Pool(processes=25)
-
     # create arguments iterator
     args = xarray_time_iterator(da)
 
-    # compute processing
-    results = pool.imap(regrid_timestep, args)
+    # create thread pool
+    with mp.Pool(processes=25) as pool:
 
-    # close thread pool
-    pool.close()
-    pool.join()
+        # compute processing
+        results = pool.imap(regrid_timestep, args)
 
-    # process each timestep
-    for k, da_k_xy in enumerate(results):
+        # process each timestep
+        for k, da_k_xy in enumerate(results):
 
-        # add results to container
-        newarr[k, ::] = da_k_xy
+            # add results to container
+            newarr[k, ::] = da_k_xy
 
     # make new container for regular x-y data
     nda = xr.DataArray(data=newarr,
