@@ -35,7 +35,6 @@ from piss_lib import *
 ###########################
 
 
-
 def get_variables(args: list[str]):
     '''
     info: retrieve variables from input arguments.
@@ -43,8 +42,6 @@ def get_variables(args: list[str]):
         args : list[str] -> list of arguments to parse.
     returns:
         simid : str  -> list of simulation(s) name(s) (default is 'lgm_100').
-        plot  : bool -> plot maps with cyclones
-        calc  : bool -> search for cyclones
     '''
 
     # get copy of arguments
@@ -63,7 +60,6 @@ def get_variables(args: list[str]):
     return (simid)
 
 
-
 ############################
 ##### LOCAL PARAMETERS #####
 ############################
@@ -79,15 +75,10 @@ dirdata = f'{homedir}/projects/piss/data'       # data output
 dirimg  = f'{homedir}/projects/piss/img2'       # output for figures
 
 # output file with cyclones information
-fin = f'tracks_{simid}_v3_0001_0005.pkl'
+fin = f'tracks_{simid}_v3_0001_0035.pkl'
 
 # indexer to choose southern hemisphere (from -30° to the south)
 shidx = {'lat': slice(-90, -30)}
-
-# parameters needed in method
-topo_max = 1000     # slp minimum points over this altitude are eliminated [m]
-radius   = 1000     # gradient search radius [km]
-grad_min = 10       # minimum slp gradient required for cyclone [hPa]
 
 # figure parameters
 size = (7.5, 6)
@@ -108,7 +99,7 @@ with open(f'{dirdata}/{fin}', 'rb') as f:
 tids = [*tracks.keys()]
 
 # load simulation datasets
-slp = load_simulation(dirsim, simid, ['PSL'], cyclic=True)['PSL']
+slp = load_simulation_variable(dirsim, simid, 'PSL', cyclic=True)
 
 # adjust slp units
 slp = slp.where(False, slp / 100)
@@ -121,7 +112,7 @@ output_template = f'tracks/piss_map_tracks_v3_{simid.lower()}_*.png'
 for f in glob(f'{dirimg}/{output_template}'): os.remove(f)
 
 # levels of slp (for maps)
-levels = np.arange(970, 1050+1, 5)
+levels = np.arange(950, 1050+1, 5)
 
 # axis parameters to make it circular
 theta  = np.linspace(0, 2*np.pi, 100)
@@ -134,7 +125,10 @@ circle = mpath.Path(verts * radius + center)
 indent = log_message('making cyclone tracks')
 
 # plot tracks over map
-for tid in tids[:10]:
+for tid in tids:
+
+    # skip short tracks
+    if len(tracks[tid]) < 30: continue
 
     # output filename image
     output = f"{output_template.replace('*', tid)}"
@@ -201,14 +195,15 @@ for tid in tids[:10]:
 
     # add and adjust gridlines
     gridlines = ax.gridlines(linewidth=1,
-                                color='grey',
-                                alpha=0.25,
-                                ls='--')
+                             color='grey',
+                             alpha=0.25,
+                             ls='--',
+                             draw_labels=True)
 
-    gridlines.top_labels    = True
-    gridlines.bottom_labels = True
-    gridlines.left_labels   = True
-    gridlines.right_labels  = True
+    # gridlines.top_labels    = True
+    # gridlines.bottom_labels = True
+    # gridlines.left_labels   = True
+    # gridlines.right_labels  = True
 
     # set labels
     ax.set_title(f'Southern Hemishphere, track {tid}')

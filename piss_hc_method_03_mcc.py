@@ -41,7 +41,7 @@ def load_data(dirin, simid, dtype='cyclones', ctype = 'dict'):
     '''
 
     # load cyclone tracks of simulation
-    with open(f'{dirin}/{dtype}_{simid}_v3_0001_0005.pkl', 'rb') as f:
+    with open(f'{dirin}/{dtype}_{simid}_v3_0001_0035.pkl', 'rb') as f:
 
         # read file
         data = pickle.load(f)
@@ -82,8 +82,6 @@ def get_variables(args: list[str]):
         args : list[str] -> list of arguments to parse.
     returns:
         simid : str  -> list of simulation(s) name(s) (default is 'lgm_100').
-        plot  : bool -> plot maps with cyclones
-        calc  : bool -> search for cyclones
     '''
 
     # get copy of arguments

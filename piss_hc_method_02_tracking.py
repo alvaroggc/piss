@@ -33,21 +33,34 @@ from piss_lib import *
 
 def east_or_not(p1, p2, D=500):
     '''
-    info:
+    info: check if point <p2> is east of point <p1>
     parameters:
+        p1 -> (float, float) : point 1 with coordinates (y, x)
+        p2 -> (float, float) : point 2 with coordinates (y, x)
+        D  -> float          : threshold dist. to accept point in any direction
     returns:
+        boolean : True if p2 east of p1, False if not
     '''
 
     # convert to lat-lon coordinate system
     lat1, lon1 = convert_point_to_latlon(p1)
     lat2, lon2 = convert_point_to_latlon(p2)
 
-    # longitude alternative
-    lon1aux = (lon1 - 360) if (lon1 > 180) else lon1
-    lon2aux = (lon2 - 360) if (lon2 > 180) else lon2
+    # check if longitude range should be fixed
+    if (np.abs(lon1 - lon2) > 180):
+
+        # longitude alternative
+        lon1aux = (lon1 - 360) if (lon1 > 180) else lon1
+        lon2aux = (lon2 - 360) if (lon2 > 180) else lon2
+
+    else:
+
+        # longitude alternative (same as original)
+        lon1aux = lon1
+        lon2aux = lon2
 
     # check if p2 is east of p1
-    east = False if ((lon2 < lon1) and (lon2aux < lon1aux)) else True
+    east = False if (lon2aux < lon1aux) else True
 
     # if not moving east, at least check if p2 doesn't move much from p1
     if not east:
@@ -94,38 +107,6 @@ def guess_point(p1, p2):
     return p_guess
 
 
-def contour_search(da, point):
-    '''
-    info:
-    parameters:
-    returns:
-    '''
-
-    # separate coordinates of field
-    lat   = da['lat']
-    lon   = da['lon']
-    dates = da['time']
-
-    # separate coordinates of point
-    latp  = point[0]
-    lonp  = point[1]
-    datep = cf.dt(point[-1], calendar='noleap')
-
-    # find indexes of point inside coordinates
-    ilat, = np.where(np.abs((lat - latp)) == np.min(np.abs((lat - latp))))[0]
-    jlon, = np.where(np.abs((lon - lonp)) == np.min(np.abs((lon - lonp))))[0]
-    kt  , = np.where(np.abs((dates - datep)) == np.min(np.abs((dates - datep))))[0]
-
-    # choose date
-    dak = da.isel({'time': kt}).squeeze()
-
-    # # process each contour
-    # while ((ilat < len(lat)) and (ilon < len(lon))): # <-- option 1, i think it won't work
-    #
-    #     # for now, do nothing
-    #     None
-
-
 def get_variables(args: list[str]):
     '''
     info: retrieve variables from input arguments.
@@ -133,8 +114,7 @@ def get_variables(args: list[str]):
         args : list[str] -> list of arguments to parse.
     returns:
         simid : str  -> list of simulation(s) name(s) (default is 'lgm_100').
-        plot  : bool -> plot maps with cyclones
-        calc  : bool -> search for cyclones
+        D     : int  -> threshold search distance
     '''
 
     # get copy of arguments
@@ -166,12 +146,12 @@ simid, D = get_variables(sys.argv)
 
 # directories
 homedir = os.path.expanduser('~')               # home directory
-dirin   = f'/mnt/cirrus/results/friquelme'      # cesm simulations
+dirsim   = f'/mnt/cirrus/results/friquelme'      # cesm simulations
 dirout  = f'{homedir}/projects/piss/data'       # data output
 dirimg  = f'{homedir}/projects/piss/img'        # output for figures
 
 # filenames for stored results
-fin  = f'cyclones_{simid}_v3_0001_0005.pkl'
+fin  = f'cyclones_{simid}_v3_0001_0035.pkl'
 
 # variable to process
 key = 'PSL'
@@ -202,28 +182,18 @@ with open(f'{dirout}/{fin}', 'rb') as f:
 date_ini = [*cyclones.keys()][ 0]
 date_end = [*cyclones.keys()][-1]
 
-# load simulation datasets
-slp = load_simulation(dirin, simid, ['PSL'])['PSL']
+# load simulation datasets (only time coordinate is needed)
+t = load_simulation_variable(dirsim, simid, 'PSL')['time']
 
 # extract temporal range (only for slp)
-slp  = slp.sel( {'time': slice(date_ini, date_end)})
+t = t.sel({'time': slice(date_ini, date_end)})
 
 # range of years
-yri = slp['time.year'][ 0].item()
-yrf = slp['time.year'][-1].item()
+yri = t['time.year'][ 0].item()
+yrf = t['time.year'][-1].item()
 
 # output file with cyclones tracks information
 fout = f'tracks_{simid}_v3_{yri:04d}_{yrf:04d}.pkl'
-
-# extract southern hemisphere
-slp  = slp.sel(shidx).load()
-
-# adjust slp units
-slp = slp.where(False, slp / 100)
-slp.attrs['units'] = 'hPa'
-
-# convert coordinates to lambert projection [latlon -> xy]
-slp = convert_to_lambert(slp)
 
 # track cyclone centers
 # * point = [y[0], x[1], slp[2], grad_slp[3], contours[4], date[5], sid[6]]
@@ -239,12 +209,12 @@ indent = log_message('assembling tracks')
 tracks = {}
 
 # process each date
-for it in range(len(slp['time'])-2):
+for it in range(len(t)-2):
 
     # date identifiers for initial step of track
-    datestr0 = slp['time'][it+0].dt.strftime('%Y-%m-%d').item()
-    datestr1 = slp['time'][it+1].dt.strftime('%Y-%m-%d').item()
-    datestr2 = slp['time'][it+2].dt.strftime('%Y-%m-%d').item()
+    datestr0 = t[it+0].dt.strftime('%Y-%m-%d').item()
+    datestr1 = t[it+1].dt.strftime('%Y-%m-%d').item()
+    datestr2 = t[it+2].dt.strftime('%Y-%m-%d').item()
 
     # process each point of timestep
     ip0 = 0
@@ -305,10 +275,10 @@ for it in range(len(slp['time'])-2):
         _ = cyclones[datestr2].pop(idx[2])
 
         # continue adding points to track
-        for jt in range(it+2, len(slp['time'])-1):
+        for jt in range(it+2, len(t)-1):
 
             # date identifier
-            datestr_next = slp['time'][jt+1].dt.strftime('%Y-%m-%d').item()
+            datestr_next = t[jt+1].dt.strftime('%Y-%m-%d').item()
 
             # extraction of last points in track
             plast = trackpoints[-1]
@@ -353,6 +323,9 @@ for it in range(len(slp['time'])-2):
 
                 # logging message
                 print(f'{indent}{datestr0}: {cid} ({len(trackpoints):02d})')
+
+                for tp in trackpoints:
+                    print(f"{indent}{' '*12}{tp[-2]} - {tp[-1]}")
 
                 # update cyclone code and id
                 cn += 1

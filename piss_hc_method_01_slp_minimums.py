@@ -35,8 +35,6 @@ from piss_lib import *
 ###########################
 
 
-
-
 def east_or_not(p1, p2, D=500):
     '''
     info:
@@ -114,32 +112,43 @@ def slp_cyclonic_minimums(slp_k):
     cyclones = []
 
     # process each latitude gridpoint
-    for i in range(1, len(slp_k['y'])-1):
+    for i in range(1, len(y)-1):
 
         # process each longitude gridpoint
-        for j in range(1, len(slp_k['x'])-1):
+        for j in range(1, len(x)-1):
+
+            # extract gridpoint latitude and altitude
+            lat_ij  = LAT[ i, j]
+            topo_ij = topo[i, j]
 
             # 9 points box (point in index 4 is the center)
-            slp_k_box  = slp_k[ i-1:i+2, j-1:j+2].data.flatten()
-            # topo_xy_box = topo_xy[i-1:i+2, j-1:j+2].data.flatten()
+            slp_k_box = slp_k[i-1:i+2, j-1:j+2].data.flatten()
 
             # separate points
             slp_k_boxcenter  = slp_k_box[4]
             slp_k_boxborders = np.delete(slp_k_box, 4)
-            # topo_xy_boxcenter = topo_xy_box[4]
 
-            # initial conditions to consider minimum as cyclone
-            cond1 = ((slp_k_boxcenter  <  slp_k_boxborders).sum() == 8)
-            # cond2 = ( topo_xy_boxcenter <= topo_max)
+            ### conditions to accept slp minimum
+            # cond1: slp grid point is surrounded by higher values
+            cond1 = ((slp_k_boxcenter < slp_k_boxborders).sum() == 8)
 
-            # check if center is minimum
-            # if cond1 and cond2:
-            if cond1:   # test to see topography influence
+            # cond2: topo is lower than <max> value or higher than <max>
+            #        but not in antartica
+            cond2 = (    (topo_ij <= topo_max)
+                     or ((topo_ij >  topo_max) and (lat_ij > -60)))
+
+            # cond3: slp minimum south of 30°S
+            cond3 = (lat_ij < -30)
+
+            # check if center is minimum and [low or high but not in antartica]
+            if cond1 and cond2 and cond3:
 
                 # add x-y coordinates to subcontainer
                 cyclones.append([np.float32(slp_k[i, j]['y'].item()),
                                  np.float32(slp_k[i, j]['x'].item()),
                                  np.float32(slp_k_boxcenter)])
+
+
 
     # process each point previously selected
     ipoint = 0
@@ -245,11 +254,11 @@ def slp_cyclonic_minimums(slp_k):
                 contourpoly = Polygon(   zip(xpath, ypath))
                 contourline = LineString(zip(xpath, ypath))
 
-                # criteria to choose (and remove) contours
+                ### criteria to choose (and remove) contours
                 # 1st: slp minimum inside contour
                 cond1 = contourpoly.contains(slp_min_point)
 
-                # 2nd: pole NOT inside contour
+                # 2nd: south pole NOT inside contour
                 cond2 = (not contourpoly.contains(southpole))
 
                 # 3er: close contour
@@ -334,16 +343,16 @@ dirsim  = f'/mnt/cirrus/results/friquelme'      # cesm simulations
 dirout  = f'{homedir}/projects/piss/data'       # data output
 
 # indexer to choose southern hemisphere (from -30° to the south)
-shidx = {'lat': slice(-90, -30)}
+shidx = {'lat': slice(-90, 0)}
 
 # parameters needed in method
-topo_max = 1000     # slp minimum points over this altitude are eliminated [m]
+topo_max = 1500     # slp minimum points over this altitude are eliminated [m]
 radius   = 1000     # gradient search radius [km]
 grad_min = 10       # minimum slp gradient required for cyclone [hPa]
 
 # temporal range
 date_ini = '0001-01-01 00:00:00'
-date_end = '0005-01-01 00:00:00'
+date_end = '0036-01-01 00:00:00'
 
 
 ###################
@@ -352,17 +361,11 @@ date_end = '0005-01-01 00:00:00'
 
 
 # load simulation datasets
-ds = load_simulation(dirsim, simid, ['PSL', 'PHIS'])
-
-# separate variables
-slp  = ds['PSL']
-topo = ds['PHIS']
-
-# remove dataset variable (to clean memory usage)
-del ds
+slp  = load_simulation_variable(dirsim, simid, 'PSL')
+topo = load_simulation_variable(dirsim, simid, 'PHIS')
 
 # extract temporal range (only for slp)
-slp  = slp.sel( {'time': slice(date_ini, date_end)})
+slp = slp.sel({'time': slice(date_ini, date_end)})
 
 # range of years
 yri =  slp['time.year'][ 0].item()
@@ -372,21 +375,40 @@ yrf =  slp['time.year'][-1].item()
 fout = f'cyclones_{simid}_v3_{yri:04d}_{yrf:04d}.pkl'
 
 # extract southern hemisphere
-slp = slp.sel(shidx).load()
-topo = topo.sel(shidx).load()
+slp = slp.sel(shidx)
+topo = topo.sel(shidx)
 
 # adjust slp units
 slp = slp.where(False, slp / 100)
 slp.attrs['units'] = 'hPa'
 
 # adjust topography data
-topo = topo.where(False, topo / 9.8)            # geop. to geop. height
-topo = topo.sel({'time': topo['time'][[0]]})    # leave first timestep
-topo.attrs['units'] = 'm'
+topo = topo.where(False, topo / 9.8)  # geop. to geop. height
+topo = topo.isel({'time': [0]})       # leave first timestep
+
+# load data
+slp = slp.load()
+topo = topo.load()
 
 # convert coordinates to lambert projection
 slp  = convert_to_lambert(slp)
 topo = convert_to_lambert(topo).squeeze()
+
+# only retain values of topo (not necessary whole xarray container)
+topo = topo.data
+
+# separate coordinates
+x = slp['x'].data
+y = slp['y'].data
+
+# create lat grid based on x-y coordinates
+X, Y = np.meshgrid(x, y, indexing='ij')
+LAT  = convert_point_to_latlon((Y.flatten(), X.flatten()))[0]
+LAT  = LAT.reshape(Y.shape)
+
+# delete unnecesary variable (to free memory)
+del X
+del Y
 
 # arguments for slp minimum selection process function
 args = xarray_time_iterator(slp)
@@ -396,6 +418,9 @@ cyclones = {}
 
 # slp minimum identifier
 sid = 0
+
+# logging message
+indent = log_message('starting slp minimum identification')
 
 # create thread pool
 with mp.Pool(processes=25) as pool:

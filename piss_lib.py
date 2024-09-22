@@ -67,39 +67,47 @@ def log_message(msg):
     return indent
 
 
-def load_simulation(dirin, simid, keys=[], cyclic=False):
+def load_simulation_variable(dirin, simid, key='PSL', cyclic=False):
     '''
     info:
     parameters:
     returns:
     '''
 
-    # list of netcdf files to load
-    fin = sorted(glob(f'{dirin}/data/piss/**/{simid}.*.nc', recursive=True))
+    # check files to load
+    if (key in ['PSL']):
+
+        # list of netcdf files to load
+        fin = sorted(glob(f'{dirin}/data/piss/yData/h1/{simid}/{simid}.*.nc'))
+
+    elif (key in ['PHIS']):
+
+        # list of netcdf files to load
+        fin = sorted(glob(f'{dirin}/data/piss/phis/{simid}.*.nc'))
 
     # logging message
-    indent = log_message('loading files')
+    indent = log_message(f'loading {key}')
     for f in fin: print(f"{indent}{f.split('/')[-1]}")
 
     # load all files inside dataset container
-    ds = xr.open_mfdataset(fin,
+    da = xr.open_mfdataset(fin,
                            compat='override',
-                           coords='minimal')[keys]
+                           coords='minimal')[key]
 
     # round spatial coordinates
-    ds['lat'] = ds['lat'].astype(np.float32)
-    ds['lon'] = ds['lon'].astype(np.float32)
+    da['lat'] = da['lat'].astype(np.float32)
+    da['lon'] = da['lon'].astype(np.float32)
 
     # make longitude cyclic
     if cyclic:
 
         # clone first value to last position
-        dslast        = ds.sel({'lon': 0}).copy()
-        dslast['lon'] = 360
-        ds            = xr.concat((ds, dslast), 'lon')
+        dalast        = da.sel({'lon': 0}).copy()
+        dalast['lon'] = 360
+        da            = xr.concat((da, dalast), 'lon')
 
     # output
-    return ds
+    return da
 
 
 def convert_to_lambert(da, res=90):

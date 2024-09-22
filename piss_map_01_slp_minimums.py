@@ -35,7 +35,6 @@ from piss_lib import *
 ###########################
 
 
-
 def get_variables(args: list[str]):
     '''
     info: retrieve variables from input arguments.
@@ -43,8 +42,6 @@ def get_variables(args: list[str]):
         args : list[str] -> list of arguments to parse.
     returns:
         simid : str  -> list of simulation(s) name(s) (default is 'lgm_100').
-        plot  : bool -> plot maps with cyclones
-        calc  : bool -> search for cyclones
     '''
 
     # get copy of arguments
@@ -63,7 +60,6 @@ def get_variables(args: list[str]):
     return (simid)
 
 
-
 ############################
 ##### LOCAL PARAMETERS #####
 ############################
@@ -79,15 +75,10 @@ dirdata = f'{homedir}/projects/piss/data'       # data output
 dirimg  = f'{homedir}/projects/piss/img2'       # output for figures
 
 # output file with cyclones information
-fin = f'cyclones_{simid}_v3_0001_0005.pkl'
+fin = f'cyclones_{simid}_v3_0001_0035.pkl'
 
-# indexer to choose southern hemisphere (from -30° to the south)
+# indexer to choose southern hemisphere (from 0° to the south)
 shidx = {'lat': slice(-90, -30)}
-
-# parameters needed in method
-topo_max = 1000     # slp minimum points over this altitude are eliminated [m]
-radius   = 1000     # gradient search radius [km]
-grad_min = 10       # minimum slp gradient required for cyclone [hPa]
 
 # figure parameters
 size = (7.5, 6)
@@ -109,7 +100,7 @@ date_ini = [*cyclones.keys()][ 0]
 date_end = [*cyclones.keys()][-1]
 
 # load simulation datasets
-slp = load_simulation(dirsim, simid, ['PSL'], cyclic=True)['PSL']
+slp = load_simulation_variable(dirsim, simid, 'PSL', cyclic=True)
 
 # extract temporal range (only for slp)
 slp = slp.sel({'time': slice(date_ini, date_end)})
@@ -125,7 +116,7 @@ output_template = f'slp_minimums/piss_map_slpmin_v3_{simid.lower()}_*.png'
 for f in glob(f'{dirimg}/{output_template}'): os.remove(f)
 
 # levels of slp (for maps)
-levels = np.arange(970, 1050+1, 5)
+levels = np.arange(950, 1050+1, 5)
 
 # axis parameters to make it circular
 theta  = np.linspace(0, 2*np.pi, 100)
@@ -202,14 +193,15 @@ for t in slp['time'][:10]:
 
     # add and adjust gridlines
     gridlines = ax.gridlines(linewidth=1,
-                                color='grey',
-                                alpha=0.25,
-                                ls='--')
+                             color='grey',
+                             alpha=0.25,
+                             ls='--',
+                             draw_labels=True)
 
-    gridlines.top_labels    = True
-    gridlines.bottom_labels = True
-    gridlines.left_labels   = True
-    gridlines.right_labels  = True
+    # gridlines.top_labels    = True
+    # gridlines.bottom_labels = True
+    # gridlines.left_labels   = True
+    # gridlines.right_labels  = True
 
     # set labels
     ax.set_title(f'Southern Hemishphere, {datestr}')
