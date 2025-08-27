@@ -1,0 +1,22 @@
+# directories
+data/
+img/
+legal/
+manuscript/
+presentations/
+*.old/
+.git.*/
+__pycache__/
+
+# data files
+*.nc
+*.pkl
+*.zip
+*.txt
+*.png
+*.log
+
+# python files
+*.pyc
+*.pyo
+
