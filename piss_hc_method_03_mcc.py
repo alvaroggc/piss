@@ -35,48 +35,6 @@ from piss_lib import *
 ###########################
 
 
-def load_data(dirin, simid, dtype='cyclones', ctype = 'dict'):
-    '''
-    info:
-    parameters:
-    returns:
-    '''
-
-    # load cyclone tracks of simulation
-    with open(f'{dirin}/{dtype}_{simid}_v3_0001_0035.pkl', 'rb') as f:
-
-        # read file
-        data = pickle.load(f)
-
-    # convert dictionary to list
-    if ctype == 'list':
-
-        # create new to arrangement for cyclone tracks information
-        data2 = []
-
-        # process each entry
-        for cid in data.keys():
-
-            # process each point
-            for p in data[cid]:
-
-                # only add new column if track data
-                if dtype == 'tracks':
-
-                    data2 += [[*p, cid]]
-
-                else:
-
-                    data2 += [p]
-
-        # clean variable (to reduce memory usage)
-        data = data2
-        del data2
-
-    # output
-    return data
-
-
 def get_variables(args: list[str]):
     '''
     info: retrieve variables from input arguments.
@@ -94,9 +52,11 @@ def get_variables(args: list[str]):
 
     # retrieve variables
     simid = [arg for arg in args if simid_fmt.match(str(arg))]   # sim. ID
+    ra    = True if 'ra' in args else False
 
     # check arguments
     simid = 'lgm_100' if not simid else simid[0]
+    simid = 'ra' if ra else simid
 
     # output
     return (simid)
@@ -114,7 +74,7 @@ simid = get_variables(sys.argv)
 homedir = os.path.expanduser('~')               # home directory
 dirsim  = f'/mnt/cirrus/results/friquelme'      # cesm simulations
 dirdata = f'{homedir}/projects/piss/data'       # data output
-dirimg  = f'{homedir}/projects/piss/img'        # output for figures
+dirimg  = f'{homedir}/projects/piss/img2'        # output for figures
 
 # indexer to choose southern hemisphere (from -30° to the south)
 shidx = {'lat': slice(-90, -30)}
@@ -131,11 +91,10 @@ size = (7.5, 6)
 time_ini = dt.datetime.today()
 
 # open files
-tracks   = load_data(dirdata, simid, dtype='tracks',   ctype = 'list')
-cyclones = load_data(dirdata, simid, dtype='cyclones', ctype = 'list')
+tracks = load_results(dirdata, simid, dtype='tracks', ctype = 'list')
 
 # get temporal range
-dates = [*np.unique([cyclone[5] for cyclone in cyclones])]
+dates = [*np.unique([cyclone[-3] for cyclone in tracks])]
 
 # range of years
 yri = int(dates[ 0].split('-')[0])
@@ -143,10 +102,6 @@ yrf = int(dates[-1].split('-')[0])
 
 # output file with cyclones tracks (mcc) information
 fout = f'tracks_mcc_{simid}_v3_{yri:04d}_{yrf:04d}.pkl'
-
-# extract list of cyclone and track IDs in tracks container
-tid = [track[-1] for track in tracks]
-cid = [f'{track[-2]:d}' for track in tracks]
 
 # mcc code and id
 mccn  = 0
@@ -161,39 +116,23 @@ indent = log_message('searching for mcc')
 # process each date
 for date in dates:
 
-    # extract points in date
-    cyclones_date = [cyclone for cyclone in cyclones if cyclone[5] == date]
+    # extract points (already in tracks) in date
+    cyclones_date = [cyclone for cyclone in tracks if cyclone[-3] == date]
 
     # extract all cyclone points
-    points = [Point(p[1], p[0]) for p in cyclones_date]
+    points = [Point(p[0], p[1]) for p in cyclones_date]
 
     # process each point
     for p0 in cyclones_date:
 
-        # code of cyclone point
-        ccode_0 = str(p0[-1])
-
-        # flags that indicate if points in any track
-        intracks_0 = (ccode_0 in cid)
-
-        # check if cyclone point is in any track
-        if not intracks_0:
-
-            # skip to next point
-            continue
-
-        # logging message
-        print(f'{indent}{date}: p0 - {ccode_0}')
-        input('everything ok, just checking')
-
-        # get code of track that point belongs to
-        tcode_0 = tid[ccode_0 == cid]
+        # code of track that point belongs to
+        tcode_0 = p0[-1]
 
         # value of slp minimum
         slpmin_0 = p0[2]
 
         # create point object
-        point_0 = Point(p0[1], p0[0])
+        point_0 = Point(p0[0], p0[1])
 
         # copy of all data from points without the one being processed
         cyclones_datex = cyclones_date.copy()
@@ -215,6 +154,9 @@ for date in dates:
         # get indexes with inside points
         idx = [*np.where(inside)[0]]
 
+        # logging message
+        print(f'{indent}p0: {date}, {p0[-2]}, {tcode_0}')
+
         # case 1: one other slp minimum inside last contour
         if (len(idx) == 1):
 
@@ -222,10 +164,7 @@ for date in dates:
             p1 = cyclones_datex[idx[0]]
 
             # code of cyclone point
-            ccode_1 = p1[-1]
-
-            # flags that indicate if points in any track
-            intracks_1 = (ccode_1 in cid)
+            tcode_1 = p1[-1]
 
             # values of slp minimums
             slpmin_1 = p1[2]
@@ -233,15 +172,8 @@ for date in dates:
             # get value of outter contour
             slpc_1 = p1[4][0]
 
-            # if point not in any track
-            if not intracks_1:
-
-                # continue to next point
-                continue
-
             # logging message
-            print(f"{indent}{' '*10}  p1 - {ccode_1}")
-            input('everything ok, just checking')
+            _ = input(f'{indent}p1: {date}, {p1[-2]}, {tcode_1}')
 
             # get extreme slp values to compute number of contours
             slpmin_min = np.min([slpmin_0, slpmin_1])
@@ -252,74 +184,77 @@ for date in dates:
             # ratio of shared contours
             rc = 0.5
 
-        # case 2: two other slp minimum inside last contour
-        elif (len(idx) == 2):
-
-            # extract points inside contour
-            p1 = cyclones_datex[idx[0]]
-            p2 = cyclones_datex[idx[1]]
-
-            # codes of cyclone points
-            ccode_1 = p1[-1]
-            ccode_2 = p2[-1]
-
-            # flags that indicate if points in any track
-            intracks_1 = (ccode_1 in cid)
-            intracks_2 = (ccode_2 in cid)
-
-            # values of slp minimums
-            slpmin_1 = p1[2]
-            slpmin_2 = p2[2]
-
-            # get values of outter contours
-            slpc_1 = p1[4][0]
-            slpc_2 = p2[4][0]
-
-            # get extreme slp values to compute number of contours
-            if intracks_1 and not intracks_2:
-
-                # logging message
-                print(f"{indent}{' '*10}  p1 - {ccode_1}")
-                input('everything ok, just checking')
-
-                slpmin_min = np.min([slpmin_0, slpmin_1])
-                slpmin_max = np.max([slpmin_0, slpmin_1])
-                slpc_min   = np.min([slpc_0,   slpc_1])
-                slpc_max   = np.max([slpc_0,   slpc_1])
-
-            elif not intracks_1 and intracks_2:
-
-                # logging message
-                print(f"{indent}{' '*10}  p2 - {ccode_2}")
-                input('everything ok, just checking')
-
-                slpmin_min = np.min([slpmin_0, slpmin_2])
-                slpmin_max = np.max([slpmin_0, slpmin_2])
-                slpc_min   = np.min([slpc_0,   slpc_2])
-                slpc_max   = np.max([slpc_0,   slpc_2])
-
-            elif intracks_1 and intracks_2:
-
-                # logging message
-                print(f"{indent}{' '*10}  p1 - {ccode_1}")
-                print(f"{indent}{' '*10}  p2 - {ccode_2}")
-                input('everything ok, just checking')
-
-                slpmin_min = np.min([slpmin_0, slpmin_1, slpmin_2])
-                slpmin_max = np.max([slpmin_0, slpmin_1, slpmin_2])
-                slpc_min   = np.min([slpc_0,   slpc_1, slpc_2])
-                slpc_max   = np.max([slpc_0,   slpc_1, slpc_2])
-
-            else:
-
-                # continue to next point
-                continue
-
-            # ratio of shared contours
-            rc = 0.7
+        # # case 2: two other slp minimum inside last contour
+        # elif (len(idx) == 2):
+        #
+        #     # extract points inside contour
+        #     p1 = cyclones_datex[idx[0]]
+        #     p2 = cyclones_datex[idx[1]]
+        #
+        #     # codes of cyclone points
+        #     ccode_1 = p1[-1]
+        #     ccode_2 = p2[-1]
+        #
+        #     # flags that indicate if points in any track
+        #     intracks_1 = (ccode_1 in cid)
+        #     intracks_2 = (ccode_2 in cid)
+        #
+        #     # values of slp minimums
+        #     slpmin_1 = p1[2]
+        #     slpmin_2 = p2[2]
+        #
+        #     # get values of outter contours
+        #     slpc_1 = p1[4][0]
+        #     slpc_2 = p2[4][0]
+        #
+        #     # get extreme slp values to compute number of contours
+        #     if intracks_1 and not intracks_2:
+        #
+        #         # logging message
+        #         print(f"{indent}{' '*10}  p1 - {ccode_1}")
+        #         input('everything ok, just checking')
+        #
+        #         slpmin_min = np.min([slpmin_0, slpmin_1])
+        #         slpmin_max = np.max([slpmin_0, slpmin_1])
+        #         slpc_min   = np.min([slpc_0,   slpc_1])
+        #         slpc_max   = np.max([slpc_0,   slpc_1])
+        #
+        #     elif not intracks_1 and intracks_2:
+        #
+        #         # logging message
+        #         print(f"{indent}{' '*10}  p2 - {ccode_2}")
+        #         input('everything ok, just checking')
+        #
+        #         slpmin_min = np.min([slpmin_0, slpmin_2])
+        #         slpmin_max = np.max([slpmin_0, slpmin_2])
+        #         slpc_min   = np.min([slpc_0,   slpc_2])
+        #         slpc_max   = np.max([slpc_0,   slpc_2])
+        #
+        #     elif intracks_1 and intracks_2:
+        #
+        #         # logging message
+        #         print(f"{indent}{' '*10}  p1 - {ccode_1}")
+        #         print(f"{indent}{' '*10}  p2 - {ccode_2}")
+        #         input('everything ok, just checking')
+        #
+        #         slpmin_min = np.min([slpmin_0, slpmin_1, slpmin_2])
+        #         slpmin_max = np.max([slpmin_0, slpmin_1, slpmin_2])
+        #         slpc_min   = np.min([slpc_0,   slpc_1, slpc_2])
+        #         slpc_max   = np.max([slpc_0,   slpc_1, slpc_2])
+        #
+        #     else:
+        #
+        #         # continue to next point
+        #         print(f"{indent}{' '*12}p1 nor p2 in any track")
+        #
+        #         # continue to next point
+        #         continue
+        #
+        #     # ratio of shared contours
+        #     rc = 0.7
 
         # case 3: three or more slp minimums inside last contour
-        elif (len(idx) > 2):
+        elif (len(idx) > 1):
 
             # logging message
             input(f'too many points inside contour: FIX')
@@ -342,45 +277,45 @@ for date in dates:
         ratio = nshared / ntotal
 
         # check if mcc (two points)
-        if (ratio > rc) and (len(idx) == 1):
+        if (ratio > rc):
 
             # add mcc track to container
             mcc[mccid] = (p0, p1)
 
             # update cyclone code and id
             mccn += 1
-            mccid = f'c{mccn:05d}'
+            mccid = f'mcc{mccn:05d}'
 
-            input('two points, stop')
+            _ = input(f'{indent}MCC FOUND! ({mccid})')
 
-        # check if mcc (three points)
-        elif (ratio > rc) and (len(idx) == 2):
-
-            if intracks_1 and not intracks_2:
-
-                # add mcc track to container
-                mcc[mccid] = (p0, p1)
-
-            elif not intracks_1 and intracks_2:
-
-                # add mcc track to container
-                mcc[mccid] = (p0, p2)
-
-            elif intracks_1 and intracks_2:
-
-                # add mcc track to container
-                mcc[mccid] = (p0, p1, p2)
-
-            else:
-
-                # logging message
-                input(f'criteria reached but no point in track: FIX')
-
-            # update cyclone code and id
-            mccn += 1
-            mccid = f'c{mccn:05d}'
-
-            input('three points, stop')
+        # # check if mcc (three points)
+        # elif (ratio > rc) and (len(idx) == 2):
+        #
+        #     if intracks_1 and not intracks_2:
+        #
+        #         # add mcc track to container
+        #         mcc[mccid] = (p0, p1)
+        #
+        #     elif not intracks_1 and intracks_2:
+        #
+        #         # add mcc track to container
+        #         mcc[mccid] = (p0, p2)
+        #
+        #     elif intracks_1 and intracks_2:
+        #
+        #         # add mcc track to container
+        #         mcc[mccid] = (p0, p1, p2)
+        #
+        #     else:
+        #
+        #         # logging message
+        #         input(f'criteria reached but no point in track: FIX')
+        #
+        #     # update cyclone code and id
+        #     mccn += 1
+        #     mccid = f'c{mccn:05d}'
+        #
+        #     input('three points, stop')
 
 # track cyclone centers
 # * point = [y[0], x[1], slp[2], grad_slp[3], cont[4], date[5], sid[6]]

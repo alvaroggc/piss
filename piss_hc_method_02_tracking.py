@@ -33,7 +33,7 @@ from piss_lib import *
 ###########################
 
 
-def east_or_not(p1, p2, D=500):
+def east_or_not(p1, p2, D=100):
     '''
     info: check if point <p2> is east of point <p1>
     parameters:
@@ -44,9 +44,16 @@ def east_or_not(p1, p2, D=500):
         boolean : True if p2 east of p1, False if not
     '''
 
+    # extract coordinates of both points
+    xp = [p1[0], p2[0]]
+    yp = [p1[1], p2[1]]
+
     # convert to lat-lon coordinate system
-    lat1, lon1 = convert_point_to_latlon(p1)
-    lat2, lon2 = convert_point_to_latlon(p2)
+    ((lon1, lon2), (lat1, lat2)) = convert_point_to_latlon((xp, yp))
+
+    # # convert to lat-lon coordinate system
+    # lat1, lon1 = convert_point_to_latlon(p1)
+    # lat2, lon2 = convert_point_to_latlon(p2)
 
     # check if longitude range should be fixed
     if (np.abs(lon1 - lon2) > 180):
@@ -87,26 +94,19 @@ def guess_point(p1, p2):
     returns:
     '''
 
-    # convert to lat-lon coordinate system
-    lat1, lon1 = convert_point_to_latlon(p1)
-    lat2, lon2 = convert_point_to_latlon(p2)
+    # separate x-y coordinates
+    x1 = p1[0]
+    x2 = p2[0]
 
-    # if point to close to 0°lon, change range of longitude
-    if (lon1 > 320) or (lon2 > 320):
-
-        # shift coordinates
-        lon1 = (lon1 - 360) if (lon1 > 180) else lon1
-        lon2 = (lon2 - 360) if (lon2 > 180) else lon2
+    y1 = p1[1]
+    y2 = p2[1]
 
     # guess next point
-    lat3 = lat2 + 0.75 * (lat2 - lat1)
-    lon3 = lon2 + 0.75 * (lon2 - lon1)
-
-    # convert to x-y coordinate
-    p_guess = convert_point_to_xy([lat3, lon3])
+    x_guess = x2 + 0.75 * (x2 - x1)
+    y_guess = y2 + 0.75 * (y2 - y1)
 
     # output
-    return p_guess
+    return (x_guess, y_guess)
 
 
 def get_variables(args: list[str]):
@@ -124,11 +124,16 @@ def get_variables(args: list[str]):
 
     # formats
     simid_fmt = re.compile(r'^lgm_\d{3}?')      # simulation id
+    ra_fmt    = re.compile(r'^ra_(6|24)h$')
     D_fmt     = re.compile(r'^D\d')             # search distance
 
     # retrieve variables
     simid = [arg for arg in args if simid_fmt.match(str(arg))]   # sim. ID
-    D     = [arg for arg in args if D_fmt.match(    str(arg))]   # search distance
+    raid  = [arg for arg in args if ra_fmt.match(str(arg))]
+
+    simid = raid if raid else simid
+
+    D = [arg for arg in args if D_fmt.match(str(arg))]   # search distance
 
     # check arguments
     simid = 'lgm_100' if not simid else simid[0]
@@ -153,13 +158,11 @@ dirout  = f'{homedir}/projects/piss/data'       # data output
 dirimg  = f'{homedir}/projects/piss/img'        # output for figures
 
 # filenames for stored results
-fin  = f'cyclones_{simid}_v3_0001_0035.pkl'
+fin  = (     f'cyclones_{simid}_0001_0035.pkl' if ('ra' not in simid)
+        else f'cyclones_{simid}_1990_2001.pkl')
 
 # variable to process
 key = 'PSL'
-
-# indexer to choose southern hemisphere (from -30° to the south)
-shidx = {'lat': slice(-90, -30)}
 
 # parameters needed in method
 D0 = 1200   # threshold distance to track cyclones [km]
@@ -173,6 +176,10 @@ D0 = 1200   # threshold distance to track cyclones [km]
 
 # execution time
 time_ini = dt.datetime.today()
+
+# convert distances to meters
+D  *= 1000
+D0 *= 1000
 
 # open cyclones file
 with open(f'{dirout}/{fin}', 'rb') as f:
@@ -194,11 +201,17 @@ t = t.sel({'time': slice(date_ini, date_end)})
 yri = t['time.year'][ 0].item()
 yrf = t['time.year'][-1].item()
 
+# resample data (only for ra dataset)
+if (simid == 'ra_24h'):
+
+    # from 6h resolution to 24h res.
+    t = t.isel({'time': slice(None, None, 4)})
+
 # output file with cyclones tracks information
-fout = f'tracks_{simid}_v3_{yri:04d}_{yrf:04d}.pkl'
+fout = f'tracks_{simid}_{yri:04d}_{yrf:04d}.pkl'
 
 # track cyclone centers
-# * point = [y[0], x[1], slp[2], grad_slp[3], contours[4], date[5], sid[6]]
+# point = [x[0], y[1], slp[2], grad_slp[3], contours[4], date[5], sid[6]]
 
 # cyclone code and id
 cn  = 0             # cyclone number
@@ -210,13 +223,16 @@ indent = log_message('assembling tracks')
 # tracks container
 tracks = {}
 
+# date string format
+fmt = '%Y-%m-%d %H:%M'
+
 # process each date
 for it in range(len(t)-2):
 
     # date identifiers for initial step of track
-    datestr0 = t[it+0].dt.strftime('%Y-%m-%d').item()
-    datestr1 = t[it+1].dt.strftime('%Y-%m-%d').item()
-    datestr2 = t[it+2].dt.strftime('%Y-%m-%d').item()
+    datestr0 = t[it+0].dt.strftime(fmt).item()
+    datestr1 = t[it+1].dt.strftime(fmt).item()
+    datestr2 = t[it+2].dt.strftime(fmt).item()
 
     # process each point of timestep
     ip0 = 0
@@ -280,7 +296,7 @@ for it in range(len(t)-2):
         for jt in range(it+2, len(t)-1):
 
             # date identifier
-            datestr_next = t[jt+1].dt.strftime('%Y-%m-%d').item()
+            datestr_next = t[jt+1].dt.strftime(fmt).item()
 
             # extraction of last points in track
             plast = trackpoints[-1]
@@ -327,6 +343,7 @@ for it in range(len(t)-2):
                 print(f'{indent}{datestr0}: {cid} ({len(trackpoints):02d})')
 
                 for tp in trackpoints:
+
                     print(f"{indent}{' '*12}{tp[-2]} - {tp[-1]}")
 
                 # update cyclone code and id

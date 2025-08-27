@@ -23,82 +23,19 @@ import cf
 import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
-import multiprocess as mp
 import matplotlib.pyplot as plt
+import multiprocess as mp
 from pyproj import Geod
 from shapely.geometry import Point, LineString
 from shapely.geometry.polygon import Polygon
 
 # local source
-from piss_lib import *
+from _piss_lib import *
 
 
 ###########################
 ##### LOCAL FUNCTIONS #####
 ###########################
-
-
-def east_or_not(p1, p2, D=500):
-    '''
-    info:
-    parameters:
-    returns:
-    '''
-
-    # convert to lat-lon coordinate system
-    lat1, lon1 = convert_point_to_latlon(p1)
-    lat2, lon2 = convert_point_to_latlon(p2)
-
-    # longitude alternative
-    lon1aux = (lon1 - 360) if (lon1 > 180) else lon1
-    lon2aux = (lon2 - 360) if (lon2 > 180) else lon2
-
-    # check if p2 is east of p1
-    east = False if ((lon2 < lon1) and (lon2aux < lon1aux)) else True
-
-    # if not moving east, at least check if p2 doesn't move much from p1
-    if not east:
-
-        # distance between points
-        dist = distance_between_points(p1, p2)
-
-        # check if distance is low
-        if (dist < D):
-
-            # update flag to indicate that p2 is a valid point
-            east = True
-
-    # output
-    return east
-
-
-def guess_point(p1, p2):
-    '''
-    info:
-    parameters:
-    returns:
-    '''
-
-    # convert to lat-lon coordinate system
-    lat1, lon1 = convert_point_to_latlon(p1)
-    lat2, lon2 = convert_point_to_latlon(p2)
-
-    # if point to close to 0°lon, change range of longitude
-    if (lon1 > 320) or (lon2 > 320):
-
-        # shift coordinates
-        lon1 = (lon1 - 360) if (lon1 > 180) else lon1
-        lon2 = (lon2 - 360) if (lon2 > 180) else lon2
-
-    # guess next point
-    lat3 = lat2 + 0.75 * (lat2 - lat1)
-    lon3 = lon2 + 0.75 * (lon2 - lon1)
-
-    # convert to x-y coordinate
-    p_guess = convert_point_to_xy([lat3, lon3])
-
-    # output
-    return p_guess
 
 
 def slp_cyclonic_minimums(slp_k):
@@ -109,7 +46,7 @@ def slp_cyclonic_minimums(slp_k):
     '''
 
     # get datetime string
-    datestr = slp_k['time'].dt.strftime('%Y-%m-%d').item()
+    datestr = slp_k['time'].dt.strftime(fmt).item()
 
     # initiate timestep subcontainer
     cyclones = []
@@ -136,9 +73,11 @@ def slp_cyclonic_minimums(slp_k):
             cond1 = ((slp_k_boxcenter < slp_k_boxborders).sum() == 8)
 
             # cond2: topo is lower than <max> value or higher than <max>
-            #        but not in antartica
-            cond2 = (    (topo_ij <= topo_max)
-                     or ((topo_ij >  topo_max) and (lat_ij > -60)))
+            #        but not in PIS (between 56°S and 38.5°S)
+            cond2a = (topo_ij <= topo_max)
+            cond2b = (lat_ij > -56) and (lat_ij < -38.5)
+
+            cond2 = (cond2a or cond2b)
 
             # cond3: slp minimum south of 30°S
             cond3 = (lat_ij < -30)
@@ -147,8 +86,8 @@ def slp_cyclonic_minimums(slp_k):
             if cond1 and cond2 and cond3:
 
                 # add x-y coordinates to subcontainer
-                cyclones.append([np.float32(slp_k[i, j]['y'].item()),
-                                 np.float32(slp_k[i, j]['x'].item()),
+                cyclones.append([np.float32(slp_k[i, j]['x'].item()),
+                                 np.float32(slp_k[i, j]['y'].item()),
                                  np.float32(slp_k_boxcenter)])
 
 
@@ -158,8 +97,8 @@ def slp_cyclonic_minimums(slp_k):
     while ipoint < len(cyclones):
 
         # separate point coordinates and values
-        yp    = cyclones[ipoint][0]
-        xp    = cyclones[ipoint][1]
+        xp    = cyclones[ipoint][0]
+        yp    = cyclones[ipoint][1]
         slp_p = cyclones[ipoint][2]
 
         # grids center in point
@@ -176,14 +115,14 @@ def slp_cyclonic_minimums(slp_k):
         for j in range(len(slp_k['x'])):
 
             # check if y-coordinate has, at least, one value to retrieve
-            if (mask[j, :].sum() < 2):
+            if (mask[:, j].sum() < 2):
 
                 # skip y-coordinate
                 continue
 
             # gradients in circle border
-            grad.append((slp_k[j, mask[j, :]][ 0] - slp_p).item())
-            grad.append((slp_k[j, mask[j, :]][-1] - slp_p).item())
+            grad.append((slp_k[mask[:, j], j][ 0] - slp_p).item())
+            grad.append((slp_k[mask[:, j], j][-1] - slp_p).item())
 
         # mean gradient around center
         gradm = np.nanmean(grad)
@@ -206,7 +145,7 @@ def slp_cyclonic_minimums(slp_k):
             ipoint += 1
 
     # create list of points for these slp minimums
-    points    = [Point(p[1], p[0]) for p in cyclones]
+    points    = [Point(p[0], p[1]) for p in cyclones]
     southpole = Point(0, 0)
 
     # minimum distance (km) between each contour line point
@@ -217,7 +156,7 @@ def slp_cyclonic_minimums(slp_k):
     while ipoint < len(cyclones):
 
         # create point object for reference
-        slp_min_point = Point(cyclones[ipoint][1], cyclones[ipoint][0])
+        slp_min_point = Point(cyclones[ipoint][0], cyclones[ipoint][1])
 
         # value of slp minimum
         slp_min = cyclones[ipoint][2]
@@ -226,10 +165,12 @@ def slp_cyclonic_minimums(slp_k):
         levels = np.arange(slp_min, slp_k.max().item(), 2)
 
         # create figure just to calculate contour lines
-        _fig, _ax = plt.subplots(1, 1)
+        _fig, _ax = plt.subplots(1, 1, subplot_kw={'projection': proj})
 
         # plot field
-        cont = slp_k.squeeze().plot.contour(ax=_ax, levels=levels)
+        cont = slp_k.squeeze().plot.contour(ax=_ax,
+                                            levels=levels,
+                                            transform=transxy)
 
         # container for contour of slp minimum
         slp_cont = []
@@ -245,9 +186,12 @@ def slp_cyclonic_minimums(slp_k):
                     # continue to next path
                     continue
 
+                # extract vertices
+                vert = path.vertices
+
                 # coordinates of path
-                xpath = path.to_polygons()[0][:, 0]
-                ypath = path.to_polygons()[0][:, 1]
+                xpath = vert[:, 0]
+                ypath = vert[:, 1]
 
                 # distances between each contour point coordinate
                 difx = np.abs(np.diff(xpath))
@@ -269,7 +213,7 @@ def slp_cyclonic_minimums(slp_k):
 
                 # 4rd: number of slp minimums inside contour
                 cond4 = [contourpoly.contains(pp) for pp in points]
-                cond4 = (np.array(cond4).sum() <= 3)
+                cond4 = (np.array(cond4).sum() <= 2)
 
                 # 5th: contour not in border
                 cond5 = ((difx < eps).all() and (dify < eps).all())
@@ -301,6 +245,7 @@ def slp_cyclonic_minimums(slp_k):
         del _fig
         del _ax
 
+
     # output
     return cyclones
 
@@ -321,9 +266,11 @@ def get_variables(args: list[str]):
 
     # formats
     simid_fmt = re.compile(r'^lgm_\d{3}?')      # simulation id
+    ra_fmt    = re.compile(r'^ra_(6|24)h$')
 
     # retrieve variables
     simid = [arg for arg in args if simid_fmt.match(str(arg))]   # sim. ID
+    simid = [arg for arg in args if ra_fmt.match(str(arg))]
 
     # check arguments
     simid = 'lgm_100' if not simid else simid[0]
@@ -345,7 +292,7 @@ homedir = os.path.expanduser('~')               # home directory
 dirsim  = f'/mnt/cirrus/results/friquelme'      # cesm simulations
 dirout  = f'{homedir}/projects/piss/data'       # data output
 
-# indexer to choose southern hemisphere (from -30° to the south)
+# indexer to choose southern hemisphere (from 0° to the south)
 shidx = {'lat': slice(-90, 0)}
 
 # parameters needed in method
@@ -354,8 +301,11 @@ radius   = 1000     # gradient search radius [km]
 grad_min = 10       # minimum slp gradient required for cyclone [hPa]
 
 # temporal range
-date_ini = '0001-01-01 00:00:00'
-date_end = '0036-01-01 00:00:00'
+date_ini = '0001-01-01 00:00:00' if ('ra' not in simid) else '1990-01-01 00:00:00'
+date_end = '0036-01-01 00:00:00' if ('ra' not in simid) else '2001-01-01 00:00:00'
+
+# date string format
+fmt = '%Y-%m-%d %H:%M'
 
 
 ###################
@@ -375,10 +325,10 @@ yri =  slp['time.year'][ 0].item()
 yrf =  slp['time.year'][-1].item()
 
 # output file with cyclones information
-fout = f'cyclones_{simid}_v3_{yri:04d}_{yrf:04d}.pkl'
+fout = f'cyclones_{simid}_{yri:04d}_{yrf:04d}.pkl'
 
 # extract southern hemisphere
-slp = slp.sel(shidx)
+slp  = slp.sel( shidx)
 topo = topo.sel(shidx)
 
 # adjust slp units
@@ -389,9 +339,21 @@ slp.attrs['units'] = 'hPa'
 topo = topo.where(False, topo / 9.8)  # geop. to geop. height
 topo = topo.isel({'time': [0]})       # leave first timestep
 
+# if grids are different, interpolate to topography grid (only happens with ra)
+if ('ra' in simid):
+
+    slp = slp.interp({'lat': topo['lat'],
+                      'lon': topo['lon']}, method='linear')
+
 # load data
-slp = slp.load()
+slp  = slp.load()
 topo = topo.load()
+
+# resample data (only for ra dataset)
+if (simid == 'ra_24h'):
+
+    # from 6h resolution to 24h res.
+    slp = slp.isel({'time': slice(None, None, 4)})
 
 # convert coordinates to lambert projection
 slp  = convert_to_lambert(slp)
@@ -406,7 +368,7 @@ y = slp['y'].data
 
 # create lat grid based on x-y coordinates
 X, Y = np.meshgrid(x, y, indexing='ij')
-LAT  = convert_point_to_latlon((Y.flatten(), X.flatten()))[0]
+LAT  = convert_point_to_latlon((X.flatten(), Y.flatten()))[1]
 LAT  = LAT.reshape(Y.shape)
 
 # delete unnecesary variable (to free memory)
@@ -435,8 +397,8 @@ with mp.Pool(processes=25) as pool:
     for k, cyclones_k in enumerate(results):
 
         # key to dictionary (date)
-        datestr = slp.isel({'time': k})['time'].dt.strftime('%Y-%m-%d').item()
-        dateid  = slp.isel({'time': k})['time'].dt.strftime(' %Y%m%d ').item()
+
+        datestr = slp.isel({'time': k})['time'].dt.strftime(fmt).item()
 
         # add to dictionary
         cyclones[datestr] = cyclones_k

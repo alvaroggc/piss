@@ -8,14 +8,17 @@
 
 
 # standard libraries
-import os
-import gc
-import re
-import csv
-import sys
 import copy
-import pickle
+import csv
 import datetime as dt
+import gc
+import locale
+import os
+import pickle
+import re
+import sys
+# import warnings
+from glob import glob
 
 # 3rd party packages
 import cf
@@ -30,7 +33,16 @@ from shapely.geometry import Point, LineString
 from shapely.geometry.polygon import Polygon
 
 # local source
-from piss_lib import *
+from _piss_lib import *
+
+# figures configuration
+plt.rcParams['figure.dpi'     ] = 200
+plt.rcParams['xtick.labelsize'] = 8
+plt.rcParams['ytick.labelsize'] = 8
+
+# general configuration
+# warnings.filterwarnings('ignore')               # supress deprecation warnings
+locale.setlocale(locale.LC_ALL, 'es_CL.UTF-8')  # apply spanish locale settings
 
 
 ###########################
@@ -52,9 +64,11 @@ def get_variables(args: list[str]):
 
     # formats
     simid_fmt = re.compile(r'^lgm_\d{3}?')      # simulation id
+    ra_fmt    = re.compile(r'^ra_(6|24)h$')
 
     # retrieve variables
-    simid = [arg for arg in args if simid_fmt.match(str(arg))]   # sim. ID
+    simids = [arg for arg in args if simid_fmt.match(str(arg))]   # sim. ID
+    simids = [arg for arg in args if ra_fmt.match(str(arg))]
 
     # check arguments
     simid = 'lgm_100' if not simid else simid[0]
@@ -75,12 +89,12 @@ simid = get_variables(sys.argv)
 homedir = os.path.expanduser('~')               # home directory
 dirsim  = f'/mnt/cirrus/results/friquelme'      # cesm simulations
 dirdata = f'{homedir}/projects/piss/data'       # data output
-dirimg  = f'{homedir}/projects/piss/img2'       # output for figures
+dirimg  = f'{homedir}/projects/piss/img/slpmins'       # output for figures
 
 # output file with cyclones information
 fin = f'cyclones_{simid}_v3_0001_0035.pkl'
 
-# indexer to choose southern hemisphere (from 0° to the south)
+# indexer to choose southern hemisphere (from 30°S to the south)
 shidx = {'lat': slice(-90, -30)}
 
 # figure parameters
@@ -92,11 +106,8 @@ size = (7.5, 6)
 ###################
 
 
-# open cyclones file
-with open(f'{dirdata}/{fin}', 'rb') as f:
-
-    # read file
-    cyclones = pickle.load(f)
+# read file
+cyclones = load_results(dirdata, simid, dtype='cyclones', ctype='dict')
 
 # temporal range
 date_ini = [*cyclones.keys()][ 0]
@@ -108,12 +119,28 @@ slp = load_simulation_variable(dirsim, simid, 'PSL', cyclic=True)
 # extract temporal range (only for slp)
 slp = slp.sel({'time': slice(date_ini, date_end)})
 
+# interpolate data to CESM resolution (only for reanalysis)
+if (simid == 'ra'):
+
+    topo = load_simulation_variable(dirsim, simid, 'PHIS')
+
+    slp = slp.interp({'lat': topo['lat'],
+                      'lon': topo['lon']}, method='linear')
+
+    del topo
+
+# resample data (only for ra dataset)
+if (simid == 'ra_24h'):
+
+    # from 6h resolution to 24h res.
+    slp = slp.isel({'time': slice(None, None, 4)})
+
 # adjust slp units
 slp = slp.where(False, slp / 100)
 slp.attrs['units'] = 'hPa'
 
 # output filename template
-output_template = f'slp_minimums/piss_map_slpmin_v3_{simid.lower()}_*.png'
+output_template = f'piss_map_slpmins_{simid.lower()}_*.png'
 
 # remove previous images
 for f in glob(f'{dirimg}/{output_template}'): os.remove(f)
@@ -132,17 +159,26 @@ circle = mpath.Path(verts * radius + center)
 indent = log_message('making slpmin maps')
 
 # plot tracks over map
-for t in slp['time'][:10]:
+for t in slp['time'][:25]:
 
     # date identifiers
-    datestr = t.dt.strftime('%Y-%m-%d').item()
-    dateid  = t.dt.strftime( '%Y%m%d' ).item()
+    datestr = t.dt.strftime('%Y-%m-%d %H:%M').item()
+    dateid  = t.dt.strftime( '%Y%m%d%H%M' ).item()
 
     # output filename image
     output = f"{output_template.replace('*', dateid)}"
 
     # logging message
     print(f"{indent}{output.split('/')[-1]}")
+
+    # extract coordinates of track points and values
+    xp   = np.array([p[ 0] for p in cyclones[datestr]])
+    yp   = np.array([p[ 1] for p in cyclones[datestr]])
+    cidp = np.array([p[-1] for p in cyclones[datestr]])
+
+    # convert units (from km to meters)
+    xp *= 1000
+    yp *= 1000
 
     # time indexer
     tidx = {'time': t}
@@ -167,26 +203,23 @@ for t in slp['time'][:10]:
                                                 'anchor'     : (0.5, 1),
                                                 'panchor'    : (0.5, 0)})
 
-    # plot minimum points
-    for p in cyclones[datestr]:
+    # draw points in map
+    ax.plot(xp, yp, transform=transxy,
+            lw=1, ls='', marker='o', ms=11, mfc='yellow', mec='black')
+
+    # plot contours and codes of points
+    for ip, p in enumerate(cyclones[datestr]):
 
         # separate contour coordinates
         xc, yc = p[4][1:]
 
-        # convert units
-        xc = xc * 1000
-        yc = yc * 1000
+        # convert units (from km to meters)
+        xc *= 1000
+        yc *= 1000
 
-        # transform to lat-lon coordinates
-        plat, plon = convert_point_to_latlon(p)
-
-        # draw point in map
-        ax.plot(plon, plat, lw=1, transform=trans,
-                marker='o', mfc='yellow', mec='black', zorder=4)#, ms=5)
-
-        # write code of slp minimum
-        ax.text(plon, plat, p[-1], size=12,
-                transform=trans, zorder=5, color='gold')
+        # write code of point
+        ax.text(xp[ip], yp[ip], cidp[ip], transform=transxy,
+                size=5, color='black', alpha=0.8, ha='center', va='center')
 
         # draw contour
         ax.plot(xc, yc, lw=1, color='black', transform=transxy)
@@ -199,12 +232,14 @@ for t in slp['time'][:10]:
                              color='grey',
                              alpha=0.25,
                              ls='--',
-                             draw_labels=True)
+                             draw_labels=True,
+                             x_inline=False,
+                             y_inline=False)
 
-    # gridlines.top_labels    = True
-    # gridlines.bottom_labels = True
-    # gridlines.left_labels   = True
-    # gridlines.right_labels  = True
+    gridlines.top_labels    = False
+    gridlines.bottom_labels = False
+    gridlines.left_labels   = True
+    gridlines.right_labels  = True
 
     # set labels
     ax.set_title(f'Southern Hemishphere, {datestr}')
@@ -218,7 +253,7 @@ for t in slp['time'][:10]:
     ax.set_boundary(circle, transform=ax.transAxes)
 
     # set coordinate limits
-    ax.set_extent([0, 360, -90, -30], crs=trans)
+    ax.set_extent([0, 360, -90, -20], crs=trans)
 
     # save / show plot
     fig.savefig(f"{dirimg}/{output}", bbox_inches='tight')
